@@ -1,0 +1,160 @@
+workflows:
+  ios_unsigned_ipa:
+    name: Aridman's Happy Place - unsigned iOS IPA (Flutter)
+    instance_type: mac_mini_m2
+
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      groups:
+        - youtube
+      vars:
+        # Used only if the repo has no ios/ folder yet (generated on the build machine).
+        # The app's bundle id becomes <ORG>.<project name>. Check "Show bundle id" in the log.
+        ORG: com.aridman
+
+    scripts:
+      - name: Unzip project
+        script: |
+          set -euo pipefail
+          cd "$CM_BUILD_DIR"
+
+          # Use the named zip, or fall back to the first .zip in the repo root.
+          ZIP="aridmans_happy_place_flutter.zip"
+          if [ ! -f "$ZIP" ]; then
+            ZIP="$(find . -maxdepth 1 -name '*.zip' | head -n 1)"
+          fi
+
+          if [ -n "$ZIP" ] && [ -f "$ZIP" ]; then
+            echo "Unzipping $ZIP"
+            rm -rf "$CM_BUILD_DIR/_unzipped"
+            unzip -q -o "$ZIP" -d "$CM_BUILD_DIR/_unzipped"
+
+            # The zip has a top-level folder; find the one that holds pubspec.yaml
+            PUBSPEC="$(find "$CM_BUILD_DIR/_unzipped" -maxdepth 2 -name pubspec.yaml | head -n 1)"
+            test -n "$PUBSPEC"
+            TOP="$(dirname "$PUBSPEC")"
+
+            # Copy the project into the repo root so the steps below find it
+            cp -R "$TOP/." "$CM_BUILD_DIR/"
+            rm -rf "$CM_BUILD_DIR/_unzipped"
+            echo "Project files unzipped into repo root."
+          else
+            echo "INFO: no .zip found, using the project files already in the repo."
+          fi
+
+      - name: Validate project
+        script: |
+          set -euo pipefail
+          test -f "pubspec.yaml"
+          test -f "lib/main.dart"
+          test -f "lib/services/youtube_service.dart"
+          test -f "lib/screens/categories_screen.dart"
+          test -f "lib/screens/video_list_screen.dart"
+          test -f "lib/screens/learn_screens.dart"
+          test -d "assets/learn"
+
+          if [ -z "${YOUTUBE_API_KEY:-}" ]; then
+            echo "INFO: YOUTUBE_API_KEY is not set; app will show a 'No YouTube key' message until a valid key is configured."
+          fi
+          echo "Project validation passed."
+
+      - name: Generate iOS project (only if ios/ is missing)
+        script: |
+          set -euo pipefail
+          if [ ! -d "ios" ]; then
+            flutter create --platforms=ios --org "$ORG" --project-name aridmans_happy_place .
+          else
+            echo "ios/ already exists, keeping it."
+          fi
+
+      - name: Name and icon
+        script: |
+          set -euo pipefail
+          # Home-screen name
+          /usr/bin/plutil -replace CFBundleDisplayName -string "Aridman's Happy Place" ios/Runner/Info.plist
+          /usr/bin/plutil -replace CFBundleName -string "AridmansHappyPlace" ios/Runner/Info.plist
+
+          # Reuse the icon from the Swift project if it is still in the repo
+          SRC="Aridmanv2/Assets.xcassets/AppIcon.appiconset"
+          DST="ios/Runner/Assets.xcassets/AppIcon.appiconset"
+          if [ -f "$SRC/Contents.json" ]; then
+            rm -rf "$DST"
+            mkdir -p "$DST"
+            cp -R "$SRC/." "$DST/"
+            echo "Copied app icon from $SRC"
+          else
+            echo "INFO: no $SRC found, keeping the default Flutter icon."
+          fi
+
+      - name: Get packages
+        script: |
+          set -euo pipefail
+          flutter --version
+          flutter pub get
+
+      - name: Analyze
+        script: |
+          set -euo pipefail
+          # Fails the build on real errors; ignores info/warning-level lints.
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Show bundle id
+        script: |
+          set -euo pipefail
+          grep -m1 "PRODUCT_BUNDLE_IDENTIFIER" ios/Runner.xcodeproj/project.pbxproj || true
+
+      - name: Install CocoaPods
+        script: |
+          set -euo pipefail
+          cd ios
+          pod install
+
+      - name: Build unsigned app
+        script: |
+          set -euo pipefail
+          flutter build ios --release --no-codesign \
+            --dart-define=YOUTUBE_API_KEY="${YOUTUBE_API_KEY:-}"
+
+          test -d "build/ios/iphoneos/Runner.app"
+          echo "Unsigned app built successfully."
+
+      - name: Package and validate unsigned IPA
+        script: |
+          set -euo pipefail
+
+          BUILD_DIR="$CM_BUILD_DIR/build"
+          APP="$BUILD_DIR/ios/iphoneos/Runner.app"
+          OUT="$BUILD_DIR/ipa"
+          IPA="$BUILD_DIR/AridmansHappyPlace-unsigned.ipa"
+
+          test -d "$APP"
+          test -f "$APP/Info.plist"
+          test -f "$APP/Runner"
+
+          rm -rf "$OUT"
+          mkdir -p "$OUT/Payload"
+          cp -R "$APP" "$OUT/Payload/AridmansHappyPlace.app"
+
+          /usr/bin/plutil -lint "$OUT/Payload/AridmansHappyPlace.app/Info.plist"
+
+          rm -f "$IPA"
+          cd "$OUT"
+          /usr/bin/ditto -c -k --keepParent Payload "$IPA"
+
+          test -f "$IPA"
+          /usr/bin/unzip -t "$IPA"
+
+          echo "=== IPA structure (top level) ==="
+          /usr/bin/unzip -l "$IPA" | head -40
+
+          echo "=== Required paths ==="
+          /usr/bin/unzip -l "$IPA" | grep -F "Payload/AridmansHappyPlace.app/Info.plist"
+          /usr/bin/unzip -l "$IPA" | grep -F "Payload/AridmansHappyPlace.app/Runner"
+
+          echo "IPA packaging validation passed."
+
+    artifacts:
+      - build/AridmansHappyPlace-unsigned.ipa
+      - build/ios/iphoneos/Runner.app
