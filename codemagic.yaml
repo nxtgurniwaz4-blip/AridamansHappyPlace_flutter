@@ -88,6 +88,12 @@ workflows:
             echo "INFO: no $SRC found, keeping the default Flutter icon."
           fi
 
+      - name: Remove default sample test
+        script: |
+          # flutter create adds a sample test that refers to a class named MyApp,
+          # which this app does not have.
+          rm -f test/widget_test.dart
+
       - name: Get packages
         script: |
           set -euo pipefail
@@ -244,6 +250,12 @@ workflows:
               sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 24/' "$f"
             fi
           done
+
+      - name: Remove default sample test
+        script: |
+          # flutter create adds a sample test that refers to a class named MyApp,
+          # which this app does not have.
+          rm -f test/widget_test.dart
 
       - name: Get packages
         script: |
