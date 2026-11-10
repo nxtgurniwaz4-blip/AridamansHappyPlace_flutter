@@ -158,3 +158,113 @@ workflows:
     artifacts:
       - build/AridmansHappyPlace-unsigned.ipa
       - build/ios/iphoneos/Runner.app
+
+  android_apk:
+    name: Aridman's Happy Place - Android APK (Flutter)
+    instance_type: linux_x2
+
+    environment:
+      flutter: stable
+      groups:
+        - youtube
+      vars:
+        # Used only if the repo has no android/ folder yet (generated on the build machine).
+        ORG: com.aridman
+
+    scripts:
+      - name: Unzip project
+        script: |
+          set -euo pipefail
+          cd "$CM_BUILD_DIR"
+
+          ZIP="aridmans_happy_place_flutter.zip"
+          if [ ! -f "$ZIP" ]; then
+            ZIP="$(find . -maxdepth 1 -name '*.zip' | head -n 1)"
+          fi
+
+          if [ -n "$ZIP" ] && [ -f "$ZIP" ]; then
+            echo "Unzipping $ZIP"
+            rm -rf "$CM_BUILD_DIR/_unzipped"
+            unzip -q -o "$ZIP" -d "$CM_BUILD_DIR/_unzipped"
+            PUBSPEC="$(find "$CM_BUILD_DIR/_unzipped" -maxdepth 2 -name pubspec.yaml | head -n 1)"
+            test -n "$PUBSPEC"
+            TOP="$(dirname "$PUBSPEC")"
+            cp -R "$TOP/." "$CM_BUILD_DIR/"
+            rm -rf "$CM_BUILD_DIR/_unzipped"
+            echo "Project files unzipped into repo root."
+          else
+            echo "INFO: no .zip found, using the project files already in the repo."
+          fi
+
+      - name: Validate project
+        script: |
+          set -euo pipefail
+          test -f "pubspec.yaml"
+          test -f "lib/main.dart"
+          test -d "assets/learn"
+          if [ -z "${YOUTUBE_API_KEY:-}" ]; then
+            echo "INFO: YOUTUBE_API_KEY is not set; app will show a 'No YouTube key' message until a valid key is configured."
+          fi
+
+      - name: Generate Android project (only if android/ is missing)
+        script: |
+          set -euo pipefail
+          if [ ! -d "android" ]; then
+            flutter create --platforms=android --org "$ORG" --project-name aridmans_happy_place .
+          else
+            echo "android/ already exists, keeping it."
+          fi
+
+      - name: Configure Android (internet, text-to-speech, name, minSdk)
+        script: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android/app/src/main/AndroidManifest.xml")
+          s = p.read_text()
+          if "android.permission.INTERNET" not in s:
+              s = s.replace("<application", '<uses-permission android:name="android.permission.INTERNET"/>\n    <application', 1)
+          if "TTS_SERVICE" not in s:
+              q = (
+                  '<queries>\n'
+                  '        <intent><action android:name="android.intent.action.TTS_SERVICE"/></intent>\n'
+                  '        <intent><action android:name="android.intent.action.VIEW"/><data android:scheme="https"/></intent>\n'
+                  '    </queries>\n    '
+              )
+              s = s.replace("<application", q + "<application", 1)
+          import re
+          s = re.sub(r'android:label="[^"]*"', 'android:label="Aridmans Happy Place"', s, count=1)
+          p.write_text(s)
+          print("Manifest updated.")
+          PY
+
+          # Newer Flutter plugins (webview, tts) need a higher minimum Android version
+          for f in android/app/build.gradle android/app/build.gradle.kts; do
+            if [ -f "$f" ]; then
+              sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 24/' "$f"
+            fi
+          done
+
+      - name: Get packages
+        script: |
+          set -euo pipefail
+          flutter --version
+          flutter pub get
+
+      - name: Analyze
+        script: |
+          set -euo pipefail
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Build APK
+        script: |
+          set -euo pipefail
+          flutter build apk --release \
+            --dart-define=YOUTUBE_API_KEY="${YOUTUBE_API_KEY:-}"
+
+          test -f "build/app/outputs/flutter-apk/app-release.apk"
+          ls -lh build/app/outputs/flutter-apk/
+          echo "APK built successfully."
+
+    artifacts:
+      - build/app/outputs/flutter-apk/app-release.apk
