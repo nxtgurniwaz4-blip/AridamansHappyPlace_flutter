@@ -5,9 +5,9 @@ workflows:
     environment:
       ios_signing:
         provisioning_profiles:
-          - Aridaman_ale_app_da_certificate 
+          - Aridaman ale app da certificate 
         certificates:
-          - Aridaman_app_da_certificate
+          - Aridaman app da certificate
       flutter: stable
       xcode: latest
       cocoapods: default
