@@ -244,10 +244,12 @@ workflows:
           print("Manifest updated.")
           PY
 
-          # Newer Flutter plugins (webview, tts) need a higher minimum Android version
+          # Newer Flutter plugins (webview, tts) need a higher minimum Android version.
+          # Uses perl instead of sed -i because the Mac build machine's BSD sed
+          # handles -i differently from Linux sed and made this step fail.
           for f in android/app/build.gradle android/app/build.gradle.kts; do
             if [ -f "$f" ]; then
-              sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 24/' "$f"
+              perl -pi -e 's/minSdk = flutter\.minSdkVersion/minSdk = 24/; s/minSdkVersion flutter\.minSdkVersion/minSdkVersion 24/' "$f"
             fi
           done
 
