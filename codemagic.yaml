@@ -21,7 +21,7 @@ workflows:
           cd "$CM_BUILD_DIR"
 
           # Use the named zip, or fall back to the first .zip in the repo root.
-          ZIP="aridmans_happy_place_flutter.zip"
+          ZIP="aridmans_happy_place.zip"
           if [ ! -f "$ZIP" ]; then
             ZIP="$(find . -maxdepth 1 -name '*.zip' | head -n 1)"
           fi
@@ -52,7 +52,9 @@ workflows:
           test -f "lib/services/youtube_service.dart"
           test -f "lib/screens/categories_screen.dart"
           test -f "lib/screens/video_list_screen.dart"
+          test -f "lib/screens/video_player_screen.dart"
           test -f "lib/screens/learn_screens.dart"
+          test -f "lib/widgets/video_tile.dart"
           test -d "assets/learn"
 
           if [ -z "${YOUTUBE_API_KEY:-}" ]; then
@@ -87,6 +89,22 @@ workflows:
           else
             echo "INFO: no $SRC found, keeping the default Flutter icon."
           fi
+
+      - name: Allow rotation (portrait and landscape)
+        script: |
+          set -euo pipefail
+          # The video player follows the phone's orientation, so the app must
+          # declare every orientation it supports.
+          /usr/bin/plutil -replace UISupportedInterfaceOrientations -json \
+            '["UIInterfaceOrientationPortrait","UIInterfaceOrientationLandscapeLeft","UIInterfaceOrientationLandscapeRight"]' \
+            ios/Runner/Info.plist
+          /usr/bin/plutil -replace "UISupportedInterfaceOrientations~ipad" -json \
+            '["UIInterfaceOrientationPortrait","UIInterfaceOrientationPortraitUpsideDown","UIInterfaceOrientationLandscapeLeft","UIInterfaceOrientationLandscapeRight"]' \
+            ios/Runner/Info.plist
+          # If this key is true the app is locked out of iPad multitasking and some rotation.
+          /usr/bin/plutil -remove UIRequiresFullScreen ios/Runner/Info.plist 2>/dev/null || true
+          /usr/bin/plutil -lint ios/Runner/Info.plist
+          echo "Orientations set."
 
       - name: Remove default sample test
         script: |
@@ -183,7 +201,7 @@ workflows:
           set -euo pipefail
           cd "$CM_BUILD_DIR"
 
-          ZIP="aridmans_happy_place_flutter.zip"
+          ZIP="aridmans_happy_place.zip"
           if [ ! -f "$ZIP" ]; then
             ZIP="$(find . -maxdepth 1 -name '*.zip' | head -n 1)"
           fi
@@ -207,6 +225,8 @@ workflows:
           set -euo pipefail
           test -f "pubspec.yaml"
           test -f "lib/main.dart"
+          test -f "lib/screens/video_player_screen.dart"
+          test -f "lib/widgets/video_tile.dart"
           test -d "assets/learn"
           if [ -z "${YOUTUBE_API_KEY:-}" ]; then
             echo "INFO: YOUTUBE_API_KEY is not set; app will show a 'No YouTube key' message until a valid key is configured."
@@ -221,11 +241,12 @@ workflows:
             echo "android/ already exists, keeping it."
           fi
 
-      - name: Configure Android (internet, text-to-speech, name, minSdk)
+      - name: Configure Android (internet, text-to-speech, name, rotation, minSdk)
         script: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import re
           p = Path("android/app/src/main/AndroidManifest.xml")
           s = p.read_text()
           if "android.permission.INTERNET" not in s:
@@ -238,8 +259,9 @@ workflows:
                   '    </queries>\n    '
               )
               s = s.replace("<application", q + "<application", 1)
-          import re
           s = re.sub(r'android:label="[^"]*"', 'android:label="Aridmans Happy Place"', s, count=1)
+          # Make sure the app is not locked to one orientation (the player follows rotation).
+          s = re.sub(r'\s+android:screenOrientation="[^"]*"', '', s)
           p.write_text(s)
           print("Manifest updated.")
           PY
