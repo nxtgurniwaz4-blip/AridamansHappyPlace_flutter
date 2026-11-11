@@ -167,7 +167,7 @@ workflows:
 
   android_apk:
     name: Aridman's Happy Place - Android APK (Flutter)
-    instance_type: linux_x2
+    instance_type: mac_mini_m2
 
     environment:
       flutter: stable
