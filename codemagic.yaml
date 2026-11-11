@@ -4,6 +4,11 @@ workflows:
     instance_type: mac_mini_m2
 
     environment:
+     ios_signing:
+        provisioning_profiles:
+          - Aridaman_ale_app_da_certificate 
+        certificates:
+          - Aridaman_app_da_certificate
       flutter: stable
       xcode: latest
       cocoapods: default
