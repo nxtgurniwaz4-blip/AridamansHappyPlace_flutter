@@ -3,8 +3,8 @@ workflows:
     name: Aridman's Happy Place - unsigned iOS IPA (Flutter)
     instance_type: mac_mini_m2
 
-    environment:
-     ios_signing:
+      environment:
+       ios_signing:
         provisioning_profiles:
           - Aridaman_ale_app_da_certificate 
         certificates:
