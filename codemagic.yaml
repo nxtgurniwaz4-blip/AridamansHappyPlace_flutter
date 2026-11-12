@@ -193,6 +193,7 @@ workflows:
 
     environment:
       flutter: stable
+      java: 21
       groups:
         - youtube
       vars:
